@@ -77,17 +77,9 @@ import org.bukkit.plugin.PluginDescriptionFile;
 import org.bukkit.plugin.PluginManager;
 import org.bukkit.plugin.java.JavaPlugin;
 
-import com.griefcraft.lwc.LWC;
-import com.griefcraft.lwc.LWCPlugin;
-import com.griefcraft.model.Protection;
-import com.nijikokun.bukkit.Permissions.Permissions;
-
 public class Tombstone extends JavaPlugin {
     public static Logger log;
     PluginManager pm;
-    
-    private Permissions permissions = null;
-    private LWCPlugin lwcPlugin = null;
     
     private ConcurrentLinkedQueue<TombBlock> tombList = new ConcurrentLinkedQueue<TombBlock>();
     private HashMap<Location, TombBlock> tombBlockList = new HashMap<Location, TombBlock>();
@@ -99,11 +91,7 @@ public class Tombstone extends JavaPlugin {
     /**
      * Configuration options - Defaults
      */
-    private int lwcTime = 3600;
     private int removeTime = 18000;
-    private boolean lwcEnable = true;
-    private boolean lwcRemove = false;
-    private boolean lwcPublic = false;
     private boolean tombRemove = false;
     private boolean tombSign = true;
     private boolean pMessage = true;
@@ -130,8 +118,6 @@ public class Tombstone extends JavaPlugin {
         pm.registerEvents(new bListener(), this);
         pm.registerEvents(new sListener(), this);
         
-        permissions = (Permissions)checkPlugin("Permissions");
-        lwcPlugin = (LWCPlugin)checkPlugin("LWC");
         plugin = this;
         
         loadConfig();
@@ -140,7 +126,7 @@ public class Tombstone extends JavaPlugin {
             loadTombList(w.getName());
         
         // Start removal timer. Run every 5 seconds (20 ticks per second)
-        if (lwcRemove || tombRemove)
+        if (tombRemove)
             getServer().getScheduler().scheduleSyncRepeatingTask(this, new TombThread(), 0L, 100L);
     }
     
@@ -150,10 +136,6 @@ public class Tombstone extends JavaPlugin {
 		// Copy default values if required
 		newConfig.options().copyDefaults(true);
 		
-        lwcEnable = newConfig.getBoolean("lwcEnable", lwcEnable);
-        lwcTime = newConfig.getInt("lwcTimeout", lwcTime);
-        lwcRemove = newConfig.getBoolean("lwcRemove", lwcRemove);
-        lwcPublic = newConfig.getBoolean("lwcPublic", lwcPublic);
         tombSign = newConfig.getBoolean("tombSign", tombSign);
         removeTime = newConfig.getInt("removeTime", removeTime);
         tombRemove = newConfig.getBoolean("tombRemove", tombRemove);
@@ -298,48 +280,11 @@ public class Tombstone extends JavaPlugin {
     }
     
     private Boolean activateLWC(Player player, TombBlock tBlock) {
-        if (!lwcEnable) return false;
-        if (lwcPlugin == null) return false;
-        LWC lwc = lwcPlugin.getLWC();
-        
-        // Register the chest + sign as private
-        Block block = tBlock.getBlock();
-        Block sign = tBlock.getSign();
-        lwc.getPhysicalDatabase().registerProtection(block.getTypeId(), Protection.Type.PRIVATE, block.getWorld().getName(), player.getName(), "", block.getX(), block.getY(), block.getZ());
-        if (sign != null)
-            lwc.getPhysicalDatabase().registerProtection(sign.getTypeId(), Protection.Type.PRIVATE, block.getWorld().getName(), player.getName(), "", sign.getX(), sign.getY(), sign.getZ());
-        
-        tBlock.setLwcEnabled(true);
-        return true;
+        return false;
     }
     
     private void deactivateLWC(TombBlock tBlock, boolean force) {
-        if (!lwcEnable) return;
-        if (lwcPlugin == null) return;
-        LWC lwc = lwcPlugin.getLWC();
-        
-        // Remove the protection on the chest
-        Block _block = tBlock.getBlock();
-        Protection protection = lwc.findProtection(_block);
-        if (protection != null) {
-            protection.remove();
-            //Set to public instead of removing completely
-            if (lwcPublic && !force)
-                lwc.getPhysicalDatabase().registerProtection(_block.getTypeId(), Protection.Type.PUBLIC, _block.getWorld().getName(), tBlock.getOwner(), "", _block.getX(), _block.getY(), _block.getZ());
-        }
-        
-        // Remove the protection on the sign
-        _block = tBlock.getSign();
-        if (_block != null) {
-            protection = lwc.findProtection(_block);
-            if (protection != null) {
-                protection.remove();
-                // Set to public instead of removing completely
-                if (lwcPublic && !force)
-                    lwc.getPhysicalDatabase().registerProtection(_block.getTypeId(), Protection.Type.PUBLIC, _block.getWorld().getName(), tBlock.getOwner(), "", _block.getX(), _block.getY(), _block.getZ());
-            }
-        }
-        tBlock.setLwcEnabled(false);
+        return;
     }
     
     private void removeTomb(TombBlock tBlock, boolean removeList) {
@@ -369,11 +314,7 @@ public class Tombstone extends JavaPlugin {
      * Check whether the player has the given permissions.
      */
     public boolean hasPerm(Player player, String perm) {
-        if (permissions != null) {
-            return permissions.getHandler().has(player, perm);
-        } else {
-            return player.hasPermission(perm);
-        }
+        return player.hasPermission(perm);
     }
     
     public void sendMessage(Player p, String msg) {
@@ -518,15 +459,6 @@ public class Tombstone extends JavaPlugin {
                 return;
             }
 
-            if (lwcPlugin != null && lwcEnable && tBlock.getLwcEnabled()) {
-                if (tBlock.getOwner().equals(p.getName()) || hasPerm(p, "tombstone.admin")) {
-                    logEvent("Deactivating LWC");
-                    deactivateLWC(tBlock, true);
-                } else {
-                    event.setCancelled(true);
-                    return;
-                }
-            }
             logEvent(p.getName() + " destroyed tombstone at " + b.getLocation());
             removeTomb(tBlock, true);
         }
@@ -760,12 +692,6 @@ public class Tombstone extends JavaPlugin {
             // Create a TombBlock for this tombstone
             TombBlock tBlock = new TombBlock(sChest.getBlock(), (lChest != null) ? lChest.getBlock() : null, sBlock, p.getName(), (System.currentTimeMillis() / 1000));
             
-            // Protect the chest/sign if LWC is installed.
-            Boolean prot = false;
-            if (hasPerm(p, "tombstone.lwc"))
-                prot = activateLWC(p, tBlock);
-            tBlock.setLwcEnabled(prot);
-            
             // Add tombstone to list
             tombList.offer(tBlock);
             
@@ -832,10 +758,6 @@ public class Tombstone extends JavaPlugin {
                 msg += event.getDrops().size() + " items wouldn't fit in chest.";
             sendMessage(p, msg);
             logEvent(name + " " + msg);
-            if (prot) {
-                sendMessage(p, "Chest protected with LWC. " + lwcTime + "s before chest is unprotected.");
-                logEvent(name + " Chest protected with LWC. " + lwcTime + "s before chest is unprotected.");
-            }
             if (tombRemove) {
                 sendMessage(p, "Chest will be automatically removed in " + removeTime + "s");
                 logEvent(name + " Chest will be automatically removed in " + removeTime + "s");
@@ -959,13 +881,19 @@ public class Tombstone extends JavaPlugin {
             int spawnSize = p.getServer().getSpawnRadius();
             Location spawn = p.getWorld().getSpawnLocation();
             if (spawnSize > 0) {
-                int distanceFromSpawn = (int) Math.max(Math.abs(p.getLocation().getBlockX() - spawn.getBlockX()), Math.abs(p.getLocation().getBlockZ() - spawn.getBlockZ()));
-                if (distanceFromSpawn <= spawnSize) return false;
+                int distanceFromSpawn = Math.max(Math.abs(p.getLocation().getBlockX() - spawn.getBlockX()), Math.abs(p.getLocation().getBlockZ() - spawn.getBlockZ()));
+                if (distanceFromSpawn <= spawnSize) {
+                  sendMessage(p, "You're inside the spawn radius.");
+                  return false;
+                }
             }
             // Check if another plugin stops us from building here
             BlockPlaceEvent event = new BlockPlaceEvent(b, b.getState(), b.getRelative(BlockFace.DOWN), p.getItemInHand(), p, true);
             pm.callEvent(event);
-            if (event.isCancelled()) return false;
+            if (event.isCancelled()) {
+              sendMessage(p, "Cancelled by plugin");
+              return false;
+            }
             return true;
         }
         
@@ -1041,28 +969,10 @@ public class Tombstone extends JavaPlugin {
     private class sListener implements Listener {
         @EventHandler(priority = EventPriority.HIGHEST)
         public void onPluginEnable(PluginEnableEvent event) {
-            if (lwcPlugin == null) {
-                if (event.getPlugin().getDescription().getName().equalsIgnoreCase("LWC")) {
-                    lwcPlugin = (LWCPlugin)checkPlugin(event.getPlugin());
-                }
-            }
-            if (permissions == null) {
-                if (event.getPlugin().getDescription().getName().equalsIgnoreCase("Permissions")) {
-                    permissions = (Permissions)checkPlugin(event.getPlugin());
-                }
-            }
         }
         
         @EventHandler(priority = EventPriority.HIGHEST)
         public void onPluginDisable(PluginDisableEvent event) {
-            if (event.getPlugin() == lwcPlugin) {
-                log.info("[Tombstone] LWC plugin lost.");
-                lwcPlugin = null;
-            }
-            if (event.getPlugin() == permissions) {
-                log.info("[Tombstone] Permissions plugin lost.");
-                permissions = null;
-            }
         }
     }
     
@@ -1071,17 +981,6 @@ public class Tombstone extends JavaPlugin {
             long cTime = System.currentTimeMillis() / 1000;
             for (Iterator<TombBlock> iter = tombList.iterator(); iter.hasNext();) {
                 TombBlock tBlock = iter.next();
-                
-                if (lwcRemove && tBlock.getLwcEnabled() && lwcPlugin != null) {
-                    if (cTime > (tBlock.getTime() + lwcTime)) {
-                        // Remove the protection on the block
-                        deactivateLWC(tBlock, false);
-                        tBlock.setLwcEnabled(false);
-                        Player p = getServer().getPlayer(tBlock.getOwner());
-                        if (p != null)
-                            sendMessage(p, "LWC Protection disabled on your tombstone!");
-                    }
-                }
                 
                 // Remove block, drop items on ground (One last free-for-all)
                 if (tombRemove && cTime > (tBlock.getTime() + removeTime)) {
